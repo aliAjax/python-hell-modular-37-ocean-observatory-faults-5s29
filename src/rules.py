@@ -122,13 +122,39 @@ def _resolve_incident(actor, entity, data, lookup):
     assets = [a for a in _all(lookup, "asset") if a["status"] in ("faulty", "offline", "rebooting")]
     if entity["data"].get("asset_id") and any(a["id"] == entity["data"].get("asset_id") for a in assets):
         raise ConflictError("affected asset is still unavailable")
-    return {"resolved_by": actor.user_id}
+    return {"resolved_by": actor.user_id, "resolution_invalidated": False}
+
+
+def _fill_gap(actor, entity, data, lookup):
+    asset_id = entity["data"].get("asset_id")
+    metric = entity["data"].get("metric")
+    based_on = 0
+    for item in _all(lookup, "telemetry"):
+        if item["data"].get("asset_id") == asset_id:
+            if metric is None or item["data"].get("metric") == metric:
+                try:
+                    rev = int(item["data"].get("revision", 0))
+                except (TypeError, ValueError):
+                    rev = 0
+                based_on = max(based_on, rev)
+    return {
+        "interpolation": {
+            "source": actor.user_id,
+            "revision": based_on,
+            "method": data.get("method", "interpolation"),
+        },
+        "outdated": False,
+    }
+
+
+def _recalculate_action(actor, entity, data, lookup):
+    return {"basis_outdated": False, "recalculated_by": actor.user_id}
 
 
 def _complete_action(actor, entity, data, lookup):
     if not data.get("outcome"):
         raise ValidationError("outcome is required")
-    return {"completed_by": actor.user_id}
+    return {"completed_by": actor.user_id, "basis_outdated": False}
 
 
 def _complete_mission(actor, entity, data, lookup):
@@ -186,6 +212,7 @@ class RuleEngine:
             "succeed": (("running",), "succeeded"),
             "fail": (("running",), "failed"),
             "cancel": (("proposed", "approved", "running"), "cancelled"),
+            "recalculate": (("proposed",), "approved"),
         },
         "mission": {
             "approve": (("planned",), "approved"),
@@ -250,6 +277,7 @@ class RuleEngine:
         "approve": ("admin", "engineer"),
         "start": ("admin", "engineer", "operator"),
         "succeed": ("admin", "engineer", "operator"),
+        "recalculate": ("admin", "engineer", "operator"),
         "cancel": ("admin", "engineer", "operator"),
         "depart": ("admin", "engineer", "operator"),
         "estimate": ("admin", "engineer", "operator"),
@@ -269,7 +297,9 @@ class RuleEngine:
         ("telemetry", "revise"): _revise_telemetry,
         ("incident", "resolve"): _resolve_incident,
         ("recovery_action", "succeed"): _complete_action,
+        ("recovery_action", "recalculate"): _recalculate_action,
         ("mission", "complete"): _complete_mission,
+        ("gap", "fill"): _fill_gap,
     }
 
     def normalize_kind(self, kind):

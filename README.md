@@ -33,9 +33,33 @@ curl http://127.0.0.1:8337/health
 - `POST /api/<kind>`：创建对象；请求体为JSON。
 - `GET /api/entities/<id>`：读取对象当前版本。
 - `POST /api/entities/<id>/actions`：提交`{"action":"动作名","data":{...},"expected_version":数字}`。
+- `POST /api/links/<id>/telemetry`：批量上报遥测，按链路容量接收/排队/保留缺口。
+- `POST /api/links/<id>/retransmit`：从断点补传排队遥测，可传`{"batch_size":数字}`。
 - `GET /api/audit`：读取审计记录。
 
-身份通过`X-User-Id`和`X-Role`请求头传入，角色和动作权限由规则引擎校验。## 核心流程
+身份通过`X-User-Id`和`X-Role`请求头传入，角色和动作权限由规则引擎校验。
+
+## 链路、遥测与缺口联动
+
+链路按状态提供有效容量（`up`/`backup_active`为满容量，`degraded`按`degraded_factor`折减，`down`为0）。遥测上报走`POST /api/links/<id>/telemetry`：
+
+- 容量窗口内的记录直接接收（`current`）。
+- 超过容量但未达`backlog_limit`的记录进入排队（`queued`）。
+- 容量不足（链路中断或积压超限）时保留数据缺口（`gap`，状态`open`，`reason=capacity_insufficient`，并记录丢失的`lost_records`）；缺口自动关联到该资产的活动故障事件，无活动事件时自动创建。
+
+链路恢复后通过`POST /api/links/<id>/retransmit`补传：按`seq`顺序处理排队记录，断点（`backlog_cursor`）持久化，补传失败后从断点继续；重复记录按`dedupe_key`只入库一次。
+
+## 插值来源与修订号失效
+
+缺口`fill`动作记录插值来源（`interpolation.source`）和所依据的遥测修订号（`interpolation.revision`）。当遥测`revise`更新修订号后：
+
+- 依据旧修订号的缺口插值标记`outdated`并回退到`open`，需重新估算/填补。
+- 依赖该插值的恢复动作标记`basis_outdated`并回退到`proposed`，需重新执行（`recalculate`后`start`/`succeed`）。
+- 已解决的故障事件结论标记`resolution_invalidated`并回退到`open`，需重新走诊断/恢复/解决流程。
+
+## 并发修改
+
+所有实体修改通过`expected_version`做乐观锁：两人同时修改同一缺口或任务时，先提交者成功，后提交者收到`409 ConflictError`。## 核心流程
 
 建立站点、资产和链路后记录遥测与故障事件，创建恢复动作并跟踪重启、备用链路、出海任务和数据缺口，最后关闭事件。遥测`revise`动作只接受更高修订号，用于处理迟到数据。
 
