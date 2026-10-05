@@ -42,8 +42,8 @@ class WorkflowTest(unittest.TestCase):
         action = self.act(action, "succeed", {"outcome": "asset online"})
 
         gap = self.create("gap", {"incident_id": incident["id"], "asset_id": asset["id"], "start_at": "2026-09-27T09:00:00Z", "end_at": "2026-09-27T09:30:00Z"})
-        gap = self.act(gap, "estimate", {"estimate": "interpolation"})
-        gap = self.act(gap, "fill", {"estimate": "interpolated series"})
+        gap = self.act(gap, "estimate", {"estimate": "interpolation"}, version=gap["version"])
+        gap = self.act(gap, "fill", {"source": "interpolation", "basis_revision": 2}, version=gap["version"])
 
         incident = self.act(incident, "resolve", {"summary": "service restored"})
         self.assertEqual(incident["status"], "resolved")

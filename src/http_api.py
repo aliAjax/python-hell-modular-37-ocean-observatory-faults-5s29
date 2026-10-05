@@ -10,6 +10,7 @@ from .domain import (
     InvalidTransition,
     NotFoundError,
     PermissionDenied,
+    TransferError,
     ValidationError,
 )
 
@@ -66,11 +67,17 @@ def create_handler(service, rules, static_dir):
                 status = 409
             elif isinstance(exc, ValidationError):
                 status = 400
+            elif isinstance(exc, TransferError):
+                status = 502
             elif isinstance(exc, DomainError):
                 status = 400
             else:
                 status = 500
-            self._send(status, {"error": str(exc), "type": type(exc).__name__})
+            payload = {"error": str(exc), "type": type(exc).__name__}
+            result = getattr(exc, "result", None)
+            if result is not None:
+                payload["result"] = result
+            self._send(status, payload)
 
         def do_GET(self):
             try:
@@ -104,6 +111,12 @@ def create_handler(service, rules, static_dir):
                 if parts == ["api", "offline-records"]:
                     body = self._body()
                     return self._send(200, {"items": service.merge_offline(actor, body.get("records", []))})
+                if len(parts) == 4 and parts[0] == "api" and parts[1] == "links" and parts[3] == "telemetry":
+                    body = self._body()
+                    samples = body.get("samples")
+                    if samples is None:
+                        samples = [body]
+                    return self._send(200, service.ingest_telemetry(actor, parts[2], samples))
                 if len(parts) == 3 and parts[:2] == ["api", "entities"]:
                     body = self._body()
                     action = body.pop("action", None)

@@ -7,5 +7,8 @@
 GET  /api/&lt;kind&gt;
 POST /api/&lt;kind&gt;
 GET  /api/entities/&lt;id&gt;
-POST /api/entities/&lt;id&gt;/actions</pre></main>
+POST /api/entities/&lt;id&gt;/actions
+POST /api/links/&lt;id&gt;/telemetry   # 遥测入库（降级排队/溢出缺口）
+POST /api/entities/&lt;backfill_id&gt;/actions  # push_batch 补传（断点续传/去重）</pre>
+<p>缺口和出海任务的动作必须带 expected_version；插值 fill 必须带 source 和 basis_revision。</p></main>
 <script>async function checkHealth(){const r=await fetch('/health');document.getElementById('result').textContent=JSON.stringify(await r.json(),null,2)}</script></body></html>

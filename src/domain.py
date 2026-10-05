@@ -27,6 +27,10 @@ class InvalidTransition(DomainError):
     """The requested state transition is not valid."""
 
 
+class TransferError(DomainError):
+    """A backfill transfer failed partway; the client must retry from the checkpoint."""
+
+
 class Role(str, Enum):
     viewer = "viewer"
     admin = "admin"
